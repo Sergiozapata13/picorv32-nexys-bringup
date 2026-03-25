@@ -55,9 +55,28 @@ Mapa de memoria:
 | B | `pcpi_example.v` | ✅ 14/14 | ✅ 6/6 | Instruccion custom 1 ciclo |
 | C | `pcpi_multicycle.v` | ✅ 14/14 | ✅ 6/6 | FSM multiciclo, pcpi_wait sostenido |
 | OE1 | `vpu_decode.v` | ✅ 21/21 | ✅ 9/9 | vsetvli/vsetvl, CSRs vl/vtype |
-| OE2 | `vpu_alu.v` | 🔲 | 🔲 | VALU vectorial + banco 8x128b |
+| OE2 | `vpu_alu.v` | ✅ 57/57 | ✅ 23/23 | VALU vectorial + banco 8x128b |
 | OE3 | `vpu_lsu.v` | 🔲 | 🔲 | vle32/vse32, acceso a memoria |
 | OE4 | Integracion | 🔲 | 🔲 | Sintesis completa + benchmarks |
+
+---
+
+## Instrucciones implementadas (OE2)
+
+| Instruccion | Tipo | Operacion | Estado |
+|-------------|------|-----------|--------|
+| `vadd.vv` | OPIVV | `vd[i] = vs2[i] + vs1[i]` | ✅ sim + HW |
+| `vsub.vv` | OPIVV | `vd[i] = vs2[i] - vs1[i]` | ✅ sim + HW |
+| `vand.vv` | OPIVV | `vd[i] = vs2[i] & vs1[i]` | ✅ sim + HW |
+| `vor.vv`  | OPIVV | `vd[i] = vs2[i] \| vs1[i]` | ✅ sim + HW |
+| `vxor.vv` | OPIVV | `vd[i] = vs2[i] ^ vs1[i]` | ✅ sim + HW |
+| `vsll.vv` | OPIVV | `vd[i] = vs2[i] << vs1[i][4:0]` | ✅ sim + HW |
+| `vsrl.vv` | OPIVV | `vd[i] = vs2[i] >> vs1[i][4:0]` | ✅ sim + HW |
+| `vmul.vv` | OPMVV | `vd[i] = vs2[i] * vs1[i]` (32b bajo) | ✅ sim + HW |
+| `vredsum.vs` | OPMVV | `vd[0] = vs1[0] + sum(vs2[i], i<vl)` | ✅ sim + HW |
+
+Todas las instrucciones respetan `vl` activo (tail elements intactos) y predicacion
+por mascara `v0` (vm=0).
 
 ---
 
@@ -79,6 +98,10 @@ Etapa C — custom.slowmul (rd = rs1 * rs2, latencia FSM 8 ciclos):
 OE1 — vsetvli (configuracion vectorial):
   Latencia:       < 5 ciclos
   Patron de loop vectorial N=10, VLMAX=4: 3 iteraciones (4+4+2) OK
+
+OE2 — VALU vectorial (4 elementos en paralelo):
+  vadd.vv / vmul.vv / vredsum.vs: verificados en hardware, 23/23 PASS
+  Banco 8x128b: lectura y escritura correctas con vl parcial y mascara v0
 ```
 
 **Hipotesis del TFG:** el sistema completo con VALU procesando 4 elementos en paralelo
@@ -102,6 +125,34 @@ Solucion: compilar con `-march=rv32i -lgcc` para usar division software via `__u
 Cambios en `firmware.hex` no se reflejan sin reset completo del run.
 Procedimiento: `reset_run synth_1` en la consola Tcl antes de resintetizar.
 
+### 4. Captura de operandos en S_IDLE (HT-OE2a)
+En una FSM PCPI multiciclo, todos los operandos deben capturarse en registros durante
+S_IDLE mientras `pcpi_valid=1`. Calculos que dependen de senales derivadas de `pcpi_valid`
+en ciclos posteriores producen siempre cero.
+
+### 5. Instrucciones vectoriales custom y ABI de GCC (HT-OE2b)
+Instrucciones vectoriales con `.word` en bloques `asm volatile` separados permiten que
+GCC corrompa los registros entre instrucciones. Usar bloques `asm` extendidos con `li`/`mv`
+directos y sin llamadas a funciones C intermedias. Patron correcto:
+
+```asm
+asm volatile (
+    "li a0, <val_vs2>\n"
+    ".word <vmv.v.x vs2>\n"
+    "li a0, <val_vs1>\n"
+    ".word <vmv.v.x vs1>\n"
+    ".word <vop.vv vd,vs2,vs1>\n"
+    ".word <vmv.x.s a0,vd>\n"
+    "mv %0, a0\n"
+    : "=r"(result) : : "a0", "memory"
+);
+```
+
+### 6. Latencia de escritura al banco vectorial (HT-OE2c)
+Cuando dos instrucciones PCPI se ejecutan consecutivamente, la segunda puede capturar
+el banco antes de que la primera complete su escritura. Solucion: estado `S_WAIT` en
+la FSM (IDLE->EXEC->DONE->WAIT->IDLE).
+
 ---
 
 ## Estructura del repositorio
@@ -109,17 +160,19 @@ Procedimiento: `reset_run synth_1` en la consola Tcl antes de resintetizar.
 ```
 .
 ├── rtl/
-│   ├── core/           # PicoRV32, simpleuart (dependencias)
-│   └── vpu/            # Modulos VPU propios
+│   ├── core/                   # PicoRV32, simpleuart (dependencias)
+│   └── vpu/                    # Modulos VPU propios
 │       ├── pcpi_example.v      # Etapa B: PCPI 1 ciclo
 │       ├── pcpi_multicycle.v   # Etapa C: PCPI multiciclo FSM
-│       └── vpu_decode.v        # OE1: decodificador vsetvli/vsetvl
-├── sim/                # Testbenches Verilator
+│       ├── vpu_decode.v        # OE1: decodificador vsetvli/vsetvl
+│       └── vpu_alu.v           # OE2: VALU vectorial + banco 8x128b
+├── sim/                        # Testbenches Verilator
 │   ├── tb_pcpi_example.cpp
 │   ├── tb_pcpi_multicycle.cpp
 │   ├── tb_vpu_decode.cpp
+│   ├── tb_vpu_alu.cpp
 │   └── Makefile
-├── fw/                 # Firmware RISC-V
+├── fw/                         # Firmware RISC-V
 │   ├── main.c
 │   ├── start.S
 │   ├── link.ld
@@ -128,7 +181,9 @@ Procedimiento: `reset_run synth_1` en la consola Tcl antes de resintetizar.
 ├── constraints/
 │   └── nexys_a7.xdc
 └── docs/
-    └── Informe_Avances_RVV_lite.docx
+    ├── Informe_Avances_RVV_lite.docx
+    ├── HT-OE2_Captura_Operandos_PCPI.docx
+    └── HT-OE2_Hallazgos_VALU_PCPI.docx
 ```
 
 ---
@@ -147,6 +202,7 @@ make all        # corre todos los testbenches
 make etapa-b    # solo pcpi_example
 make etapa-c    # solo pcpi_multicycle
 make oe1        # solo vpu_decode
+make oe2        # solo vpu_alu
 ```
 
 ### Compilar firmware
