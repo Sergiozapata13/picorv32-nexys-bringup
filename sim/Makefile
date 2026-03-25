@@ -2,20 +2,20 @@
 #  Makefile — Simulaciones Verilator
 #  TFG: RVV-lite sobre PicoRV32 — Sergio, TEC
 #
-#  Uso:
+#  Uso (desde ~/sim_pcpi):
 #    make all      — corre todos los testbenches en orden
 #    make etapa-b  — pcpi_example    (PCPI 1 ciclo)
 #    make etapa-c  — pcpi_multicycle (PCPI multiciclo FSM)
 #    make oe1      — vpu_decode      (vsetvli/vsetvl)
 #    make oe2      — vpu_alu         (VALU vectorial + banco 8x128b)
 #    make clean    — elimina obj_dir
+#
+#  Los archivos .v y los testbenches .cpp deben estar en el mismo directorio.
 # =============================================================================
 
 VERILATOR = verilator
 VFLAGS    = --cc --exe --build --trace \
             -Wno-UNUSEDSIGNAL -Wno-CASEINCOMPLETE -Wno-WIDTHTRUNC
-
-RTL = ../rtl/vpu
 
 .PHONY: all etapa-b etapa-c oe1 oe2 clean
 
@@ -31,7 +31,7 @@ etapa-b:
 	@echo ""
 	@echo "=== Etapa B: pcpi_example ==="
 	$(VERILATOR) $(VFLAGS) \
-		$(RTL)/pcpi_example.v tb_pcpi_example.cpp \
+		pcpi_example.v tb_pcpi_example.cpp \
 		-o sim_pcpi_example
 	./obj_dir/sim_pcpi_example
 
@@ -40,7 +40,7 @@ etapa-c:
 	@echo ""
 	@echo "=== Etapa C: pcpi_multicycle ==="
 	$(VERILATOR) $(VFLAGS) \
-		$(RTL)/pcpi_multicycle.v tb_pcpi_multicycle.cpp \
+		pcpi_multicycle.v tb_pcpi_multicycle.cpp \
 		-o sim_pcpi_multicycle
 	./obj_dir/sim_pcpi_multicycle
 
@@ -49,7 +49,7 @@ oe1:
 	@echo ""
 	@echo "=== OE1: vpu_decode (vsetvli/vsetvl) ==="
 	$(VERILATOR) $(VFLAGS) \
-		$(RTL)/vpu_decode.v tb_vpu_decode.cpp \
+		vpu_decode.v tb_vpu_decode.cpp \
 		-o sim_vpu_decode
 	./obj_dir/sim_vpu_decode
 
@@ -58,7 +58,7 @@ oe2:
 	@echo ""
 	@echo "=== OE2: vpu_alu (VALU vectorial + banco 8x128b) ==="
 	$(VERILATOR) $(VFLAGS) \
-		$(RTL)/vpu_alu.v tb_vpu_alu.cpp \
+		vpu_alu.v tb_vpu_alu.cpp \
 		-o sim_vpu_alu
 	./obj_dir/sim_vpu_alu
 
