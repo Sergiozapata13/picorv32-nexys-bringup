@@ -1,22 +1,19 @@
 // =============================================================================
-//  top.v - SoC PicoRV32 + BRAM + UART + GPIO + VPU (OE2 + OE3)
+//  top.v - SoC PicoRV32 + BRAM + UART + GPIO + VPU completa (OE4)
 //  TFG: RVV-lite sobre PicoRV32 - Sergio, TEC
 //  Target: Nexys A7-100T (xc7a100tcsg324-1)
 //
 //  MAPA DE MEMORIA
 //  ---------------
-//  0x0000_0000 - 0x0000_FFFF   RAM  (BRAM 64 KiB)
+//  0x0000_0000 - 0x0000_FFFF   RAM (BRAM 64 KiB)
 //  0x1000_0000                 GPIO LEDs[15:0]
 //  0x2000_0000                 UART divisor baud
 //  0x2000_0004                 UART dato TX/RX
 //
-//  VPU: vpu_alu (OE2) + vpu_lsu (OE3)
-//  Arbitro de bus: cuando lsu_mem_valid=1, la LSU controla el bus.
-//  El CPU esta suspendido (pcpi_wait=1) durante las transacciones LSU.
-//
-//  FIX vs version anterior: ready_r y rdata_r se enrutan via assign
-//  combinacional, no dentro del always block. Esto evita el bug de
-//  "lsu_mem_ready <= ready_r" donde ready_r es el valor del ciclo anterior.
+//  VPU: vpu_pcpi (OE4) = vpu_decode + vpu_alu + vpu_lsu
+//    - csr_vl dinamico: vsetvli/vsetvl configuran vl real
+//    - Banco vectorial 8x128b compartido entre ALU y LSU
+//    - Arbitro de bus con lsu_valid_prev (HT-OE3b)
 // =============================================================================
 
 module top (
@@ -28,7 +25,7 @@ module top (
 );
 
     // -------------------------------------------------------------------------
-    //  Reset
+    //  Reset sincronizado - 4 FFs, activo-bajo
     // -------------------------------------------------------------------------
     reg [3:0] rst_ff = 4'h0;
     always @(posedge CLK100MHZ)
@@ -40,11 +37,11 @@ module top (
     // -------------------------------------------------------------------------
     wire        mem_valid;
     wire        mem_instr;
-    wire        mem_ready;    // wire — driven por assign al final
+    wire        mem_ready;
     wire [31:0] mem_addr;
     wire [31:0] mem_wdata;
     wire  [3:0] mem_wstrb;
-    wire [31:0] mem_rdata;    // wire — driven por assign al final
+    wire [31:0] mem_rdata;
 
     wire        mem_la_read;
     wire        mem_la_write;
@@ -53,7 +50,7 @@ module top (
     wire  [3:0] mem_la_wstrb;
 
     // -------------------------------------------------------------------------
-    //  Interfaz PCPI - OR de vpu_alu y vpu_lsu
+    //  Interfaz PCPI - conectada a vpu_pcpi
     // -------------------------------------------------------------------------
     wire        pcpi_valid;
     wire [31:0] pcpi_insn;
@@ -64,25 +61,20 @@ module top (
     wire        pcpi_wait;
     wire        pcpi_ready;
 
-    wire        alu_wr,    lsu_wr;
-    wire [31:0] alu_rd,    lsu_rd;
-    wire        alu_wait,  lsu_wait;
-    wire        alu_ready, lsu_ready;
-
-    assign pcpi_wr    = alu_wr    | lsu_wr;
-    assign pcpi_rd    = alu_ready ? alu_rd : lsu_rd;
-    assign pcpi_wait  = alu_wait  | lsu_wait;
-    assign pcpi_ready = alu_ready | lsu_ready;
-
     // -------------------------------------------------------------------------
-    //  Bus LSU
+    //  Bus LSU - generado por vpu_pcpi
     // -------------------------------------------------------------------------
     wire        lsu_mem_valid;
     wire [31:0] lsu_mem_addr;
     wire [31:0] lsu_mem_wdata;
     wire  [3:0] lsu_mem_wstrb;
-    wire        lsu_mem_ready;   // wire — driven por assign
-    wire [31:0] lsu_mem_rdata;   // wire — driven por assign
+    wire        lsu_mem_ready;
+    wire [31:0] lsu_mem_rdata;
+
+    // lsu_valid_prev - evita ready prematuro en elemento 0 (HT-OE3b)
+    reg lsu_valid_prev;
+    always @(posedge CLK100MHZ)
+        lsu_valid_prev <= lsu_mem_valid;
 
     // Arbitro: cuando lsu_mem_valid=1, LSU controla el bus
     wire        eff_valid = lsu_mem_valid ? lsu_mem_valid : mem_valid;
@@ -91,67 +83,25 @@ module top (
     wire  [3:0] eff_wstrb = lsu_mem_valid ? lsu_mem_wstrb : mem_wstrb;
 
     // -------------------------------------------------------------------------
-    //  Banco vectorial - puertos para LSU (usa dbg_* de vpu_alu)
+    //  OE4 - vpu_pcpi: VPU completa
     // -------------------------------------------------------------------------
-    wire        lsu_vreg_we;
-    wire  [2:0] lsu_vreg_waddr;
-    wire  [1:0] lsu_vreg_welem;
-    wire [31:0] lsu_vreg_wdata;
-    wire  [2:0] lsu_vreg_raddr;
-    wire  [1:0] lsu_vreg_relem;
-    wire [31:0] lsu_vreg_rdata;
-
-    // -------------------------------------------------------------------------
-    //  OE2 - vpu_alu
-    // -------------------------------------------------------------------------
-    vpu_alu u_vpu_alu (
-        .clk          (CLK100MHZ),
-        .resetn       (resetn),
-        .pcpi_valid   (pcpi_valid),
-        .pcpi_insn    (pcpi_insn),
-        .pcpi_rs1     (pcpi_rs1),
-        .pcpi_rs2     (pcpi_rs2),
-        .pcpi_wr      (alu_wr),
-        .pcpi_rd      (alu_rd),
-        .pcpi_wait    (alu_wait),
-        .pcpi_ready   (alu_ready),
-        .csr_vl       (32'd4),
-        .csr_vtype    (32'h010),
-        .dbg_reg_sel  (lsu_vreg_we ? lsu_vreg_waddr : lsu_vreg_raddr),
-        .dbg_elem_sel (lsu_vreg_we ? lsu_vreg_welem : lsu_vreg_relem),
-        .dbg_rdata    (lsu_vreg_rdata),
-        .dbg_we       (lsu_vreg_we),
-        .dbg_wdata    (lsu_vreg_wdata)
-    );
-
-    // -------------------------------------------------------------------------
-    //  OE3 - vpu_lsu
-    // -------------------------------------------------------------------------
-    vpu_lsu u_vpu_lsu (
+    vpu_pcpi u_vpu (
         .clk            (CLK100MHZ),
         .resetn         (resetn),
         .pcpi_valid     (pcpi_valid),
         .pcpi_insn      (pcpi_insn),
         .pcpi_rs1       (pcpi_rs1),
         .pcpi_rs2       (pcpi_rs2),
-        .pcpi_wr        (lsu_wr),
-        .pcpi_rd        (lsu_rd),
-        .pcpi_wait      (lsu_wait),
-        .pcpi_ready     (lsu_ready),
-        .csr_vl         (32'd4),
+        .pcpi_wr        (pcpi_wr),
+        .pcpi_rd        (pcpi_rd),
+        .pcpi_wait      (pcpi_wait),
+        .pcpi_ready     (pcpi_ready),
         .lsu_mem_valid  (lsu_mem_valid),
         .lsu_mem_addr   (lsu_mem_addr),
         .lsu_mem_wdata  (lsu_mem_wdata),
         .lsu_mem_wstrb  (lsu_mem_wstrb),
         .lsu_mem_ready  (lsu_mem_ready),
-        .lsu_mem_rdata  (lsu_mem_rdata),
-        .vreg_we        (lsu_vreg_we),
-        .vreg_waddr     (lsu_vreg_waddr),
-        .vreg_welem     (lsu_vreg_welem),
-        .vreg_wdata     (lsu_vreg_wdata),
-        .vreg_raddr     (lsu_vreg_raddr),
-        .vreg_relem     (lsu_vreg_relem),
-        .vreg_rdata     (lsu_vreg_rdata)
+        .lsu_mem_rdata  (lsu_mem_rdata)
     );
 
     wire [31:0] eoi;
@@ -255,8 +205,7 @@ module top (
     );
 
     // -------------------------------------------------------------------------
-    //  Logica de respuesta al bus — solo calcula ready y rdata
-    //  El enrutamiento a CPU o LSU se hace via assign combinacional abajo
+    //  Logica de respuesta al bus
     // -------------------------------------------------------------------------
     reg        ready_r;
     reg [31:0] rdata_r;
@@ -296,20 +245,11 @@ module top (
     end
 
     // -------------------------------------------------------------------------
-    //  Enrutamiento combinacional de ready y rdata
-    //
-    //  Cuando lsu_mem_valid=1:
-    //    - lsu_mem_ready y lsu_mem_rdata reciben ready_r/rdata_r
-    //    - mem_ready=0 (CPU suspendido via pcpi_wait de todas formas)
-    //    - mem_rdata=0 (no importa, CPU no leerá este ciclo)
-    //
-    //  Cuando lsu_mem_valid=0:
-    //    - mem_ready y mem_rdata reciben ready_r/rdata_r
-    //    - lsu_mem_ready=0, lsu_mem_rdata=0
+    //  Enrutamiento combinacional de ready/rdata (HT-OE3b: lsu_valid_prev)
     // -------------------------------------------------------------------------
-    assign mem_ready     = lsu_mem_valid ? 1'b0    : ready_r;
-    assign mem_rdata     = lsu_mem_valid ? 32'b0   : rdata_r;
-    assign lsu_mem_ready = lsu_mem_valid ? ready_r : 1'b0;
-    assign lsu_mem_rdata = lsu_mem_valid ? rdata_r : 32'b0;
+    assign mem_ready     = lsu_mem_valid  ? 1'b0    : ready_r;
+    assign mem_rdata     = lsu_mem_valid  ? 32'b0   : rdata_r;
+    assign lsu_mem_ready = lsu_valid_prev ? ready_r : 1'b0;
+    assign lsu_mem_rdata = lsu_valid_prev ? rdata_r : 32'b0;
 
 endmodule
