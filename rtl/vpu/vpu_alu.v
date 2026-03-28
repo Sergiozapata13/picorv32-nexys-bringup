@@ -1,6 +1,6 @@
 // =============================================================================
-//  vpu_alu.v — OE2: Banco de registros vectorial + VALU completa
-//  TFG: RVV-lite sobre PicoRV32 — Sergio, TEC
+//  vpu_alu.v - OE2: Banco de registros vectorial + VALU completa
+//  TFG: RVV-lite sobre PicoRV32 - Sergio, TEC
 //
 //  Instrucciones VALU .vv  (funct3=000, OPIVV):
 //    vadd.vv  funct6=000000   vd[i] = vs2[i] + vs1[i]
@@ -22,7 +22,7 @@
 //
 //  Nota sobre vmul.vv: usa funct3=010 (OPMVV) y funct6=100101
 //  Nota sobre vsll.vv: usa funct3=000 (OPIVV) y funct6=100101
-//  Sin conflicto — diferente funct3.
+//  Sin conflicto - diferente funct3.
 // =============================================================================
 
 `timescale 1 ns / 1 ps
@@ -58,7 +58,7 @@ module vpu_alu #(
     localparam VLMAX = VLEN / EEW;  // 4
 
     // -------------------------------------------------------------------------
-    //  Banco de registros — 8 x 128 bits
+    //  Banco de registros - 8 x 128 bits
     // -------------------------------------------------------------------------
     reg [127:0] vreg [0:NREGS-1];
 
@@ -80,7 +80,7 @@ module vpu_alu #(
     wire [2:0] vs1_in = pcpi_insn[17:15];
     wire [2:0] vd_in  = pcpi_insn[9:7];
 
-    // OPIVV — funct3=000 (.vv aritmetico)
+    // OPIVV - funct3=000 (.vv aritmetico)
     wire is_ivv   = is_rvv && (pcpi_insn[14:12] == 3'b000);
     wire is_vadd  = is_ivv && pcpi_valid && (funct6 == 6'b000000);
     wire is_vsub  = is_ivv && pcpi_valid && (funct6 == 6'b000010);
@@ -91,13 +91,13 @@ module vpu_alu #(
     wire is_vsrl  = is_ivv && pcpi_valid && (funct6 == 6'b101000);
     wire is_ivv_any = is_vadd|is_vsub|is_vand|is_vor|is_vxor|is_vsll|is_vsrl;
 
-    // OPMVV — funct3=010
+    // OPMVV - funct3=010
     wire is_mvv   = is_rvv && (pcpi_insn[14:12] == 3'b010);
     wire is_vmul    = is_mvv && pcpi_valid && (funct6 == 6'b100101); // vmul.vv
     wire is_vredsum = is_mvv && pcpi_valid && (funct6 == 6'b000000); // vredsum.vs
     wire is_vmvxs   = is_mvv && pcpi_valid && (funct6 == 6'b010000); // vmv.x.s
 
-    // OPF (funct3=101) — vmv.v.x
+    // OPF (funct3=101) - vmv.v.x
     wire is_opf   = is_rvv && (pcpi_insn[14:12] == 3'b101);
     wire is_vmvvx = is_opf && pcpi_valid && (funct6 == 6'b010111); // vmv.v.x
 
@@ -142,7 +142,7 @@ module vpu_alu #(
         end
     endgenerate
 
-    // vmul.vv — multiplicacion 32x32 bits, resultado bajo 32 bits
+    // vmul.vv - multiplicacion 32x32 bits, resultado bajo 32 bits
     // Vivado sintetiza esto con DSPs de la Artix-7
     wire [31:0] res_mul [0:3];
     generate
@@ -151,7 +151,7 @@ module vpu_alu #(
         end
     endgenerate
 
-    // vredsum.vs — reduccion suma
+    // vredsum.vs - reduccion suma
     // vd[0] = vs1[0] + suma(vs2[i] para i en 0..vl-1)
     // Calculo combinacional sobre op_a_r (vs2) y op_b_r (vs1)
     wire [31:0] vred_sum =
@@ -162,15 +162,19 @@ module vpu_alu #(
         (vl_r > 3 ? op_a_r[127:96] : 32'b0);              // vs2[3] si vl>3
 
     // -------------------------------------------------------------------------
-    //  FSM — IDLE -> EXEC -> DONE -> WAIT -> IDLE
+    //  FSM - IDLE -> EXEC -> DONE -> WAIT -> IDLE
+    //  + estado RESET para limpiar el banco vectorial en cada resetn
     // -------------------------------------------------------------------------
-    localparam S_IDLE = 2'd0;
-    localparam S_EXEC = 2'd1;
-    localparam S_DONE = 2'd2;
-    localparam S_WAIT = 2'd3;
+    localparam S_RESET = 3'd0;
+    localparam S_IDLE  = 3'd1;
+    localparam S_EXEC  = 3'd2;
+    localparam S_DONE  = 3'd3;
+    localparam S_WAIT  = 3'd4;
 
-    reg [1:0] state;
-    reg       ready_r;
+    reg [2:0] state;
+
+    reg [2:0]  rst_cnt;   // contador para limpiar 8 registros en reset
+    reg        ready_r;
 
     integer i;
 
@@ -181,10 +185,20 @@ module vpu_alu #(
             vreg[dbg_reg_sel][dbg_elem_sel*32 +: 32] <= dbg_wdata;
 
         if (!resetn) begin
-            state           <= S_IDLE;
+            state           <= S_RESET;
+            rst_cnt         <= 3'd0;
             scalar_result_r <= 32'b0;
             has_scalar_r    <= 0;
         end else begin
+
+            // Estado de reset: limpiar banco registro a registro
+            if (state == S_RESET) begin
+                vreg[rst_cnt] <= 128'b0;
+                if (rst_cnt == 3'd7)
+                    state <= S_IDLE;
+                else
+                    rst_cnt <= rst_cnt + 3'd1;
+            end else
             case (state)
 
                 S_IDLE: begin
@@ -257,7 +271,8 @@ module vpu_alu #(
     //  Salidas PCPI
     // -------------------------------------------------------------------------
     assign pcpi_wait  = is_any ||
-                        (state == S_EXEC) ||
+                        (state == S_RESET) ||
+                        (state == S_EXEC)  ||
                         (state == S_DONE);
     assign pcpi_ready = ready_r;
     assign pcpi_wr    = ready_r && has_scalar_r;
