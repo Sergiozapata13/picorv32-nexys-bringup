@@ -8,6 +8,7 @@
 #    make etapa-c  — pcpi_multicycle (PCPI multiciclo FSM)
 #    make oe1      — vpu_decode      (vsetvli/vsetvl)
 #    make oe2      — vpu_alu         (VALU vectorial + banco 8x128b)
+#    make oe3      — vpu_lsu         (vle32/vse32)
 #    make clean    — elimina obj_dir
 #
 #  Los archivos .v y los testbenches .cpp deben estar en el mismo directorio.
@@ -15,12 +16,13 @@
 
 VERILATOR = verilator
 VFLAGS    = --cc --exe --build --trace \
-            -Wno-UNUSEDSIGNAL -Wno-CASEINCOMPLETE -Wno-WIDTHTRUNC
+            -Wno-UNUSEDSIGNAL -Wno-CASEINCOMPLETE \
+            -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND
 
-.PHONY: all etapa-b etapa-c oe1 oe2 clean
+.PHONY: all etapa-b etapa-c oe1 oe2 oe3 clean
 
 # ─── all ─────────────────────────────────────────────────────────────────────
-all: etapa-b etapa-c oe1 oe2
+all: etapa-b etapa-c oe1 oe2 oe3
 	@echo ""
 	@echo "========================================"
 	@echo "  Todos los testbenches completados"
@@ -61,6 +63,15 @@ oe2:
 		vpu_alu.v tb_vpu_alu.cpp \
 		-o sim_vpu_alu
 	./obj_dir/sim_vpu_alu
+
+# ─── OE3 — vpu_lsu ───────────────────────────────────────────────────────────
+oe3:
+	@echo ""
+	@echo "=== OE3: vpu_lsu (vle32/vse32) ==="
+	$(VERILATOR) $(VFLAGS) \
+		vpu_lsu.v tb_vpu_lsu.cpp \
+		-o sim_vpu_lsu
+	./obj_dir/sim_vpu_lsu
 
 # ─── Clean ───────────────────────────────────────────────────────────────────
 clean:
