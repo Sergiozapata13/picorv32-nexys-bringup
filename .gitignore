@@ -1,0 +1,10 @@
+fw/build/
+*.elf
+*.bin
+*.hex
+*.dot
+*.json
+*.bit
+*.ltx
+*.log
+*.jou
