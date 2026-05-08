@@ -182,13 +182,13 @@ static inline void sk_mul(volatile int32_t *a, volatile int32_t *b,
     for (int i = 0; i < n; i++) out[i] = a[i] * b[i];
 }
 
-static inline int32_t sk_dot(volatile int32_t *a, volatile int32_t *b, int n) {
+static __attribute__((noinline)) int32_t sk_dot(volatile int32_t *a, volatile int32_t *b, int n) {
     int32_t acc = 0;
     for (int i = 0; i < n; i++) acc += a[i] * b[i];
     return acc;
 }
 
-static inline void sk_store_constant(volatile int32_t *out, int32_t value, int n) {
+static __attribute__((noinline)) void sk_store_constant(volatile int32_t *out, int32_t value, int n) {
     for (int i = 0; i < n; i++) out[i] = value;
 }
 
