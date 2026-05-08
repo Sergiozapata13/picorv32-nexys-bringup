@@ -182,14 +182,41 @@ static inline void sk_mul(volatile int32_t *a, volatile int32_t *b,
     for (int i = 0; i < n; i++) out[i] = a[i] * b[i];
 }
 
-static __attribute__((noinline)) int32_t sk_dot(volatile int32_t *a, volatile int32_t *b, int n) {
+static inline int32_t sk_dot(volatile int32_t *a, volatile int32_t *b, int n) {
     int32_t acc = 0;
     for (int i = 0; i < n; i++) acc += a[i] * b[i];
     return acc;
 }
 
-static __attribute__((noinline)) void sk_store_constant(volatile int32_t *out, int32_t value, int n) {
+static inline void sk_store_constant(volatile int32_t *out, int32_t value, int n) {
     for (int i = 0; i < n; i++) out[i] = value;
+}
+
+// ─── FIR: y[i] = sum(h[k] * x[(i+k)%n], k=0..n-1) ──────────────────────────
+// Escalar: doble loop con multiplicacion software
+static __attribute__((noinline))
+void sk_fir(volatile int32_t *x, volatile int32_t *h,
+            volatile int32_t *y, int n) {
+    for (int i = 0; i < n; i++) {
+        int32_t acc = 0;
+        for (int k = 0; k < n; k++)
+            acc += h[k] * x[(i + k) % n];
+        y[i] = acc;
+    }
+}
+
+// Vectorial: N dot products usando vk_dot con ventana deslizante en buf[]
+// buf debe apuntar a una zona de RAM de n elementos separada de x, h, y
+static __attribute__((noinline))
+void vk_fir(volatile int32_t *x, volatile int32_t *h,
+            volatile int32_t *y, volatile int32_t *buf, int n) {
+    for (int i = 0; i < n; i++) {
+        // Copiar ventana deslizante x[(i+k)%n] al buffer
+        for (int k = 0; k < n; k++)
+            buf[k] = x[(i + k) % n];
+        // Dot product vectorial: y[i] = h . buf
+        y[i] = vk_dot(h, buf, n);
+    }
 }
 
 #endif // VPU_KERNELS_H
