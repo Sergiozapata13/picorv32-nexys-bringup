@@ -1,0 +1,113 @@
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+=== 1. ESTADISTICAS DESCRIPTIVAS ===
+Bandwidth       n=1  speedup media=1.00  sd=NA  [1.00, 1.00]
+Memory-bound    n=7  speedup media=1.36  sd=0.119  [1.20, 1.47]
+Mixed           n=2  speedup media=2.03  sd=0.256  [1.85, 2.22]
+Compute         n=2  speedup media=8.43  sd=8.159  [2.66, 14.20]
+
+=== 2. WELCH'S T-TEST PAREADO POR CATEGORIA ===
+Categoria               n         t     p-valor  Sig
+---------------------------------------------------- 
+Memory-bound            7    8.0260  9.9918e-05  ***
+Mixed                   2    2.1600  1.3801e-01   ns
+Compute                 2    1.1962  2.2164e-01   ns
+
+=== 3. T-TEST GLOBAL CON log(cpe) [elimina dominio FIR] ===
+t = 2.9557,  p = 6.5378e-03
+Conclusion: RECHAZO H0 — vectorial significativamente mas rapido ***
+
+=== 4. ANOVA: log(speedup) ~ categoria ===
+            Df Sum Sq Mean Sq F value Pr(>F)  
+categoria    3  3.948  1.3158   7.181 0.0117 *
+Residuals    8  1.466  0.1833                 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+--- Tukey HSD ---
+  Tukey multiple comparisons of means
+    95% family-wise confidence level
+
+Fit: aov(formula = log_speedup ~ categoria, data = datos)
+
+$categoria
+                            diff        lwr      upr     p adj
+Memory-bound-Bandwidth 0.3054813 -1.1600247 1.770987 0.9064050
+Mixed-Bandwidth        0.7061001 -0.9728479 2.385048 0.5618821
+Compute-Bandwidth      1.8161069  0.1371589 3.495055 0.0346673
+Mixed-Memory-bound     0.4006188 -0.6985107 1.499748 0.6620040
+Compute-Memory-bound   1.5106256  0.4114961 2.609755 0.0098142
+Compute-Mixed          1.1100068 -0.2608485 2.480862 0.1180487
+
+
+=== 5. REGRESION: log(cpe) ~ impl + categoria ===
+
+Call:
+lm(formula = log(cpe) ~ impl + categoria, data = dl)
+
+Residuals:
+     Min       1Q   Median       3Q      Max 
+-2.85264 -0.26970  0.03876  0.14654  2.01550 
+
+Coefficients:
+                      Estimate Std. Error t value Pr(>|t|)    
+(Intercept)             3.1897     0.6880   4.636 0.000180 ***
+implVectorial          -0.5986     0.3816  -1.569 0.133264    
+categoriaMemory-bound   0.6636     0.7066   0.939 0.359472    
+categoriaMixed          1.3131     0.8095   1.622 0.121278    
+categoriaCompute        3.4804     0.8095   4.299 0.000387 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 0.9348 on 19 degrees of freedom
+Multiple R-squared:  0.643,	Adjusted R-squared:  0.5679 
+F-statistic: 8.557 on 4 and 19 DF,  p-value: 0.0003997
+
+
+=== 6. REGRESION: sqrt(cpe) ~ impl + categoria ===
+(Transformacion sqrt como en paper del asesor)
+
+Call:
+lm(formula = sqrt(cpe) ~ impl + categoria, data = dl)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-29.644  -1.964   0.458   1.880  37.610 
+
+Coefficients:
+                      Estimate Std. Error t value Pr(>|t|)   
+(Intercept)              6.577      9.160   0.718  0.48147   
+implVectorial           -4.669      5.081  -0.919  0.36968   
+categoriaMemory-bound    1.689      9.408   0.180  0.85940   
+categoriaMixed           4.215     10.778   0.391  0.70010   
+categoriaCompute        32.735     10.778   3.037  0.00678 **
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 12.45 on 19 degrees of freedom
+Multiple R-squared:  0.5289,	Adjusted R-squared:  0.4297 
+F-statistic: 5.332 on 4 and 19 DF,  p-value: 0.00473
+
+
+=== 7. VERIFICACION DE SUPUESTOS ===
+Shapiro-Wilk log(cpe):  W=0.7744 p=0.0001 — No normal
+Shapiro-Wilk sqrt(cpe): W=0.7022 p=0.0000 — No normal
+Bartlett (sin Bandwidth): K2=14.2793 p=0.0008 — Heterogeneas
+
+=== 8. GRAFICOS ===
+null device 
+          1 
+null device 
+          1 
+Graficos guardados: fig1 fig2 fig3 fig4 fig5
+
+=== ANALISIS FASE A COMPLETO ===
